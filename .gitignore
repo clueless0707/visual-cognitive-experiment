@@ -144,3 +144,6 @@ data
 participants.db
 .database_url
 bonus.csv
+
+# MacOS folder
+.DS_Store

@@ -126,9 +126,9 @@ async function initializeExperiment() {
 
       ## Instructions
 
-      In this experiment, a picture of a problem will appear in the top 
-      of the screen. Please solve the problem while thinking aloud 
-      (i.e., using the microphone to record your thoughts). Use the canvas to 
+      In this experiment, a picture of a problem will appear in the center 
+      of the screen. Please solve the problem while thinking aloud, i.e., 
+      using the microphone to record your thoughts, and using the canvas to 
       draw your problem solving steps. 
     `),
     choices: ['Start'],
@@ -144,18 +144,21 @@ async function initializeExperiment() {
   var start_recording = {
     type: jsPsychHtmlButtonResponse,
     stimulus: `      
-      <p>Press the Start button to solve the problem.</p>`,
-    choices: ['Start ']
+      <p>Press the Start Record button to start recording.</p>`,
+    choices: ['Start Recording']
   }
 
-  // Record solving an example wheel problem
+  // Perform recording
   var perform_recording = {
-    type: jsPsychSketchpadWithAudioRecording,
-    prompt: "<img src='static/images/wheel-problem.png'>",
-    prompt_location: "abovecanvas",
-    canvas_width: 500,
-    canvas_height: 500,
-    canvas_border_width: 1,
+    type: jsPsychHtmlAudioResponse,
+    stimulus: `
+      <p>Recording...</p>`,
+    recording_duration: null,
+    save_audio_url: false,
+    show_done_button: true,
+    done_button_label: 'Stop',
+    allow_playback: true,
+    accept_button_label: 'Continue'
   };
 
 
@@ -167,14 +170,25 @@ async function initializeExperiment() {
     }
   };
 
-    /////////////////////////
+  // Create a drawing canvas 
+  var draw_canvas = {
+    type: jsPsychSketchpad,
+    prompt: '<p>Write down your thought process.</p>',
+    prompt_location: 'abovecanvas',
+    canvas_width: 528,
+    canvas_height: 528,
+    canvas_border_width: 2
+  }
+
+  /////////////////////////
   // Experiment timeline //
   /////////////////////////
 
   var timeline = [
     instructions_block,
     init_mic,
-    recording_loop
+    recording_loop,
+    draw_canvas
   ];
 
   if (searchParams.get('skip') != null) {
