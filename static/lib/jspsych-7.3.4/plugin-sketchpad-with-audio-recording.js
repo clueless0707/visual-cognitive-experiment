@@ -760,10 +760,19 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
               
       }
 
-      console.log("timer duration: ", timerDuration); 
-      setTimeout(() => {
+      const minDuration = 48; 
+      if (timerDuration >= minDuration) {
+        // if timer duration is more than minDuration ms, fire it
+        setTimeout(() => {
+          this.drawStroke(strokeIndex, pointIndex);
+        }, timerDuration);  
+      } else {
+        // if not, move to the next stroke/point
         this.drawStroke(strokeIndex, pointIndex);
-      }, timerDuration);      
+      }
+
+      console.log("timer duration: ", timerDuration); 
+          
     }
 
     // show the audio/sketch playback control
