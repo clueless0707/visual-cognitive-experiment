@@ -606,6 +606,7 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
           x: x,
           y: y,
           action: "move",
+          t: Math.round(performance.now() - this.start_time),
         });
       }
     }
@@ -721,33 +722,48 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
     /** A.H.
      * 
      * */
-    // draw the stroke at this.strokes[stroke_index]
-    drawStroke(strokeIndex) {
-      const stroke = this.strokes[strokeIndex];
-      for (const m of stroke) {
-        if (m.action == "start") {
-          this.ctx_redraw.beginPath();
-          this.ctx_redraw.moveTo(m.x, m.y);
-          this.ctx_redraw.strokeStyle = m.color;
-          this.ctx_redraw.lineJoin = "round";
-          this.ctx_redraw.lineWidth = this.params.stroke_width;
-        }
-        if (m.action == "move") {
-          this.ctx_redraw.lineTo(m.x, m.y);
-          this.ctx_redraw.stroke();
-        }
-      }
-      // advance to the next stroke
-      strokeIndex += 1;
-      if (strokeIndex < this.strokes.length) {
-        const currentStroke = this.strokes[strokeIndex];
-        const timerDuration = currentStroke[0].t - stroke[0].t;
-        console.log("timer duration: ", timerDuration);
-        setTimeout(() => {
-          this.drawStroke(strokeIndex);
-        }, timerDuration);
-      }     
+    // for the stroke at this.strokes[stroke_index], 
+    // draw the point in this stroke at pointIndex 
+    drawStroke(strokeIndex, pointIndex) {
+      const currentStroke = this.strokes[strokeIndex];
+      const currentPoint = currentStroke[pointIndex];
+      let timerDuration; 
 
+      if (currentPoint.action == "start") {
+        // the point is at the start of the stroke
+        this.ctx_redraw.beginPath();
+        this.ctx_redraw.moveTo(currentPoint.x, currentPoint.y);
+        this.ctx_redraw.strokeStyle = currentPoint.color;
+        this.ctx_redraw.lineJoin = "round";
+        this.ctx_redraw.lineWidth = this.params.stroke_width;
+        pointIndex += 1; 
+        timerDuration = currentStroke[pointIndex].t - currentStroke[pointIndex-1].t;
+
+      } else if (currentPoint.action == "move") {
+        // the point is in the middle of the stroke
+        this.ctx_redraw.lineTo(currentPoint.x, currentPoint.y);
+        this.ctx_redraw.stroke();
+        pointIndex += 1; 
+        timerDuration = currentStroke[pointIndex].t - currentStroke[pointIndex-1].t;
+
+      } else if (currentPoint.action == "end") {
+        // the point is at the end of the stroke
+        // advance to the next stroke, reset the point index
+        strokeIndex += 1;
+        if (strokeIndex >= this.strokes.length) {
+          // reached to the end of the strokes
+          return;
+        }
+        pointIndex = 0; 
+        const nextStroke = this.strokes[strokeIndex];
+        timerDuration = nextStroke[0].t - currentStroke[0].t; 
+              
+      }
+
+      console.log("timer duration: ", timerDuration); 
+      setTimeout(() => {
+        this.drawStroke(strokeIndex, pointIndex);
+      }, timerDuration);      
     }
 
     // show the audio/sketch playback control
@@ -780,7 +796,7 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
       this.display.querySelector("#playback").addEventListener("play", () => {
         // set a timer to draw the first stroke
         setTimeout(() => {
-          this.drawStroke(0);
+          this.drawStroke(0, 0);
         }, this.strokes[0][0].t);
       });
 
