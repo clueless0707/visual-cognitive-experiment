@@ -565,6 +565,8 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
         }
       });
     }
+    // A.H. 
+    // It appears that each chunck of strokes have three parts: action-start, action-move, action-end
     start_draw(e) {
       this.is_drawing = true;
       const x = Math.round(
@@ -717,16 +719,71 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
     }
 
     /** A.H.
-     * Added Audio Response Code
+     * 
      * */
+    // draw the stroke at this.strokes[stroke_index]
+    drawStroke(strokeIndex) {
+      const stroke = this.strokes[strokeIndex];
+      for (const m of stroke) {
+        if (m.action == "start") {
+          this.ctx_redraw.beginPath();
+          this.ctx_redraw.moveTo(m.x, m.y);
+          this.ctx_redraw.strokeStyle = m.color;
+          this.ctx_redraw.lineJoin = "round";
+          this.ctx_redraw.lineWidth = this.params.stroke_width;
+        }
+        if (m.action == "move") {
+          this.ctx_redraw.lineTo(m.x, m.y);
+          this.ctx_redraw.stroke();
+        }
+      }
+      // advance to the next stroke
+      strokeIndex += 1;
+      if (strokeIndex < this.strokes.length) {
+        const currentStroke = this.strokes[strokeIndex];
+        const timerDuration = currentStroke[0].t - stroke[0].t;
+        console.log("timer duration: ", timerDuration);
+        setTimeout(() => {
+          this.drawStroke(strokeIndex);
+        }, timerDuration);
+      }     
+
+    }
+
+    // show the audio/sketch playback control
     showPlaybackControls() {
-      this.display.innerHTML = `
+      // Add Canvas control
+      const canvas_html = `<div>
+        <canvas id="redraw-canvas" 
+        width="${this.params.canvas_width}"
+        height="${this.params.canvas_height}" 
+        class="sketchpad-rectangle"></canvas>
+        </div>
+      `;
+      //
+
+      this.display.innerHTML =
+        `
     <p><audio id="playback" src="${this.audio_url}" controls></audio></p>
     <button id="continue" class="jspsych-btn">Continue</button>
-  `;
+  ` + canvas_html;
+
       this.display.querySelector("#continue").addEventListener("click", () => {
         this.end_trial();
       });
+
+      this.ctx_redraw = this.display.querySelector("#redraw-canvas").getContext("2d");        
+
+      // Handler for the 'play' event of the audio playback element, 
+      // when 'play' event is triggered, start animating sketchpad drawings 
+      // by connecting strokes 
+      this.display.querySelector("#playback").addEventListener("play", () => {
+        // set a timer to draw the first stroke
+        setTimeout(() => {
+          this.drawStroke(0);
+        }, this.strokes[0][0].t);
+      });
+
     }
     // A. H.
 
