@@ -227,20 +227,25 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
        */
       // store data chunks in audio recordings
       this.recorded_data_chunks = [];
+      // the minimum threshold to determine whether a timer 
+      // event is triggerd ('T') or not ('F')
+      // this.minTimerFiringThr = 828;  
+      this.minDuration = 48; 
+      // to store the last time a timer is fired
+      this.lastTimeTimerFired = -1;            
     }
     trial(display_element, trial, on_load) {
       this.display = display_element;
       this.params = trial;
       this.current_stroke_color = trial.stroke_color;
+      // set up the canvas
       this.init_display();
       this.setup_event_listeners(trial);
       this.add_background_color();
       this.add_background_image().then(() => {
         on_load();
       });
-      this.start_time = performance.now();
-      this.set_trial_duration_timer();
-
+      
       /** A.H.
        * Added HTML Audio Response code
        */
@@ -248,6 +253,9 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
       this.setupRecordingEvents();
       this.startRecording();
       // A.H.
+
+      this.start_time = performance.now();
+      this.set_trial_duration_timer();
 
       return new Promise((resolve, reject) => {
         this.trial_finished_handler = resolve;
@@ -737,44 +745,157 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
         this.ctx_redraw.lineJoin = "round";
         this.ctx_redraw.lineWidth = this.params.stroke_width;
         pointIndex += 1; 
-        timerDuration = currentStroke[pointIndex].t - currentStroke[pointIndex-1].t;
+        timerDuration = currentStroke[pointIndex].t - this.lastTimeTimerFired;
 
       } else if (currentPoint.action == "move") {
         // the point is in the middle of the stroke
         this.ctx_redraw.lineTo(currentPoint.x, currentPoint.y);
         this.ctx_redraw.stroke();
         pointIndex += 1; 
-        timerDuration = currentStroke[pointIndex].t - currentStroke[pointIndex-1].t;
+        timerDuration = currentStroke[pointIndex].t - this.lastTimeTimerFired;
 
       } else if (currentPoint.action == "end") {
         // the point is at the end of the stroke
         // advance to the next stroke, reset the point index
         strokeIndex += 1;
         if (strokeIndex >= this.strokes.length) {
-          // reached to the end of the strokes
+          // reached to the end of the last stroke, stop drawing the sketch
           return;
         }
         pointIndex = 0; 
         const nextStroke = this.strokes[strokeIndex];
-        timerDuration = nextStroke[0].t - currentStroke[0].t; 
+        timerDuration = nextStroke[0].t - this.lastTimeTimerFired; 
               
       }
 
-      const minDuration = 48; 
-      if (timerDuration >= minDuration) {
-        // if timer duration is more than minDuration ms, fire it
+      if (timerDuration >= this.minDuration) {
+        // if more than minDuration ms has passed, fire a timer, 
+        // and update lastTimeTimerFired 
+        this.lastTimeTimerFired += timerDuration; 
+        // console.log("fired timer duration: ", timerDuration); 
         setTimeout(() => {
           this.drawStroke(strokeIndex, pointIndex);
         }, timerDuration);  
       } else {
         // if not, move to the next stroke/point
         this.drawStroke(strokeIndex, pointIndex);
-      }
-
-      console.log("timer duration: ", timerDuration); 
-          
+      }            
     }
 
+    // NOTE: it turns out the following algorithm has TOO HIGH complexity.
+    // analyze each stroke, find the timing information for each point,
+    // detect timer firing pattern in each stroke, using the minimum 
+    // threshold to determine whether a timer event is triggerd ('T') or not ('F')
+    // analyzeStroke(strokeIndex) {
+    //   if(strokeIndex >= this.strokes.length) {
+    //     // finished all strokes drawing already
+    //     return;
+    //   }
+    //   // the array to store the relative timing information for each point 
+    //   // relative to the previous point
+    //   this.timingEachStroke = new Array(this.strokes[strokeIndex].length);
+    //   this.timingEachStroke[0] = 0; 
+    //   for (let i = 1; i < this.timingEachStroke.length; i++) {
+    //     this.timingEachStroke[i] =
+    //       this.strokes[strokeIndex][i].t - this.strokes[strokeIndex][i-1].t; 
+    //   }
+    //   // the array to store the timer firing pattern in each strock
+    //   this.timerFiringEachStroke = new Array(this.timingEachStroke.length);
+    //   // timer is always fired at the 'start' point in each stroke
+    //   this.timerFiringEachStroke[0] = true;
+    //   // detect the timer firing pattern for each point index after 'start' 
+    //   // point and before 'end' point
+    //   let accTiming = 0;
+    //   let index = 1; 
+    //   while( index < this.timingEachStroke.length-1) {
+    //     accTiming += this.timingEachStroke[index]; 
+    //     if( accTiming >= this.minTimerFiringThr) {
+    //       this.timerFiringEachStroke[index] = true;
+    //       accTiming = 0; 
+    //     } else {
+    //       this.timerFiringEachStroke[index] = false;
+    //     }
+    //     index += 1; 
+    //   }
+    //   // timer is always fired at the 'end' point in each stroke
+    //   this.timerFiringEachStroke[this.timerFiringEachStroke.length-1] = true;
+    //   // schedule a timer to draw the 'start' point in the current stroke
+    //   setTimeout(() => {
+    //     this.drawStartPoint(strokeIndex);
+    //   }, this.strokes[strokeIndex][0].t);  
+    // }
+
+    // draw the 'start' point in each stroke, 
+    // then move to the next point
+    // drawStartPoint(strokeIndex) {
+    //   const currentStroke = this.strokes[strokeIndex];
+    //   const startPoint = currentStroke[0];
+    //   this.ctx_redraw.beginPath();
+    //   this.ctx_redraw.moveTo(startPoint.x, startPoint.y);
+    //   this.ctx_redraw.strokeStyle = startPoint.color;
+    //   this.ctx_redraw.lineJoin = "round";
+    //   this.ctx_redraw.lineWidth = this.params.stroke_width;
+
+    //   this.analyzePoints(strokeIndex, 1); 
+    // }
+
+    // analyze points in each stroke
+    // analyzePoints(strokeIndex, currPointIndex) {
+    //   const currStroke = this.strokes[strokeIndex];
+    //   if(currPointIndex >= currStroke.length) {
+    //     // reaches the end of the stroke, move to the next stroke
+    //     strokeIndex += 1; 
+    //     this.analyzeStroke(strokeIndex); 
+    //   } else {
+    //     if (this.timerFiringEachStroke[currPointIndex]) {
+    //       // timer event is fired, we need to
+    //       // schedule the function call of drawPoints()
+    //       let startPointIndex = currPointIndex - 1;
+    //       while (
+    //         startPointIndex > 0 &&
+    //         !this.timerFiringEachStroke[startPointIndex]
+    //       ) {
+    //         // if the start point index is not the 'start' point in each stroke, and
+    //         // timer is not fired, continue the search of the start point index
+    //         startPointIndex -= 1;
+    //       }
+    //       // the index of the point to start drawing
+    //       startPointIndex += 1;
+    //       // the duration for 'timeout' 
+    //       let accTimer = 0; 
+    //       for (let i = startPointIndex; i<= currPointIndex; i++) {
+    //         accTimer += this.timingEachStroke[i];
+    //       }
+    //       setTimeout(() => {
+    //         this.drawPoints(strokeIndex, currPointIndex, startPointIndex);
+    //       }, accTimer);
+    //     } else {
+    //       // move on to the next point
+    //       currPointIndex += 1;
+    //       this.analyzePoints(strokeIndex, currPointIndex);
+    //     }
+    //   }      
+    // }
+
+    // draw points in each stroke, since timer firing at the current point index 
+    // shows 'true' 
+    // drawPoints(strokeIndex, currPointIndex, startPointIndex) {
+    //   // find all previous points that need to be drawn      
+    //   let currStroke = this.strokes[strokeIndex];
+      
+    //   for (let i = startPointIndex; i <= currPointIndex; i++) {
+    //     let currentPoint = currStroke[i];
+    //     if (currentPoint.action == "move") {
+    //       // the point is in the middle of the stroke
+    //       this.ctx_redraw.lineTo(currentPoint.x, currentPoint.y);
+    //       this.ctx_redraw.stroke();  
+    //     } 
+    //   }
+    //   // move on to the next point
+    //   currPointIndex += 1;
+    //   this.analyzePoints(strokeIndex, currPointIndex);
+    // }
+    
     // show the audio/sketch playback control
     showPlaybackControls() {
       // Add Canvas control
@@ -803,10 +924,11 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
       // when 'play' event is triggered, start animating sketchpad drawings 
       // by connecting strokes 
       this.display.querySelector("#playback").addEventListener("play", () => {
-        // set a timer to draw the first stroke
+        // draw the first stroke
+        this.lastTimeTimerFired = this.strokes[0][0].t;
         setTimeout(() => {
-          this.drawStroke(0, 0);
-        }, this.strokes[0][0].t);
+          this.drawStroke(0, 0);          
+        }, this.strokes[0][0].t);        
       });
 
     }
