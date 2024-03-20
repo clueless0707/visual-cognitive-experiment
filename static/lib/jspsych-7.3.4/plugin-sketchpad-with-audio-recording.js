@@ -217,22 +217,40 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
     constructor(jsPsych) {
       this.jsPsych = jsPsych;
       this.is_drawing = false;
+      // To store strokes being drawn
       this.strokes = [];
+      // To hold each stroke that will be stored in this.strokes, 
+      // note that a stroke has one of the following states: 
+      // 'Normal' (many points), 'Undo' (single point), 'Redo' (single point)
       this.stroke = [];
-      this.undo_history = [];
       this.mouse_position = { x: 0, y: 0 };
       this.draw_key_held = false;
-      /** A.H.
-       * Added HTML Audio Response code
-       */
-      // store data chunks in audio recordings
+      // A.H. added
+      // To store a consecutive set of strokes involved in 'undo' and 'redo',
+      // note this is a 'stack' which has implications on how the state of 
+      // each stroke is managed
+      this.undo_history = [];
+      // To store all strokes ever generated in the entire history, including 
+      // those involved in 'undo' and 'redo' events
+      this.strokes_with_all_history = [];
+      // To store the last stroke index with 'normal' state, 
+      // initiated to -1 to indicate 'unused'
+      this.last_normal_stroke_index = -1; 
+      // A.H. added HTML Audio Response code
+      // Store data chunks in audio recordings
       this.recorded_data_chunks = [];
-      // the minimum threshold to determine whether a timer 
+      // The minimum threshold to determine whether a timer 
       // event is triggerd ('T') or not ('F')
-      // this.minTimerFiringThr = 828;  
       this.minDuration = 48; 
-      // to store the last time a timer is fired
+      // To store the last time a timer is fired
       this.lastTimeTimerFired = -1;            
+      // To store the confidence level by a user solving each problem
+      this.confidence_level = "Very Confident"; 
+      // balloon notification timer duration
+      this.balloon_timer_duration = 10000; 
+      // balloon notification timer handle
+      this.balloon_interval_handle = null; 
+      // A.H. 
     }
     trial(display_element, trial, on_load) {
       this.display = display_element;
@@ -333,7 +351,34 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
       this.display.innerHTML = display_html;
       this.sketchpad = this.display.querySelector("#sketchpad-canvas");
       this.ctx = this.sketchpad.getContext("2d");
+
+      // A.H. Added balloon notification controls
+      // Initialize Notyf (balloon notification control)
+      const notyf = new Notyf({
+        duration: 1000, // Notification will disappear after 1 second
+        position: {
+          x: 'left',
+          y: 'top',
+        },
+        types: [
+          {
+            type: 'info',
+            background: 'blue',
+            icon: false,
+          }
+        ]
+      });
+
+      // Start displaying the notification every (this.balloon_timer) milliseconds
+      this.balloon_interval_handle = setInterval(() => {
+        notyf.open({
+          type: 'info',
+          message: 'Please Keep Verbalizing Your Thoughts.'
+        })
+      }, this.balloon_timer_duration);
+
     }
+    
     setup_event_listeners(trial) {
       document.addEventListener("pointermove", (e) => {
         this.mouse_position = { x: e.clientX, y: e.clientY };
@@ -345,9 +390,12 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
             /** A.H.
              * Added Audio Response Code
              * */
-            // stop recording, show playback control (for debug purposes, will be removed later)
-            // note here stopRecording is asynchronous, then() awaits its completion
+            // stop recording, show playback control (for debug purposes, 
+            // will be removed later), note here stopRecording is 
+            // asynchronous, then() awaits its completion
             this.stopRecording().then(() => {
+              // Clear the balloon notification timer
+              clearInterval(this.balloon_interval_handle);
               this.showPlaybackControls();
             });
           });
@@ -574,7 +622,7 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
       });
     }
     // A.H. 
-    // It appears that each chunck of strokes have three parts: action-start, action-move, action-end
+    // It appears that each stroke has three parts: action-start, action-move, action-end
     start_draw(e) {
       this.is_drawing = true;
       const x = Math.round(
@@ -590,12 +638,16 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
       this.ctx.strokeStyle = this.current_stroke_color;
       this.ctx.lineJoin = "round";
       this.ctx.lineWidth = this.params.stroke_width;
+      // Generate a new stroke
       this.stroke = [];
       this.stroke.push({
         x: x,
         y: y,
         color: this.current_stroke_color,
         action: "start",
+        // A.H. added. To indicate this stroke is a 'Normal' Stroke
+        state: "Normal",
+        // A.H. 
         t: Math.round(performance.now() - this.start_time),
       });
       this.sketchpad.releasePointerCapture(e.pointerId);
@@ -627,6 +679,9 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
         this.strokes.push(this.stroke);
         this.set_undo_btn_state(true);
         this.set_clear_btn_state(true);
+        // A.H. added. Also push each stroke into strokes_with_all_history
+        this.strokes_with_all_history.push(this.stroke);
+        // A.H.
       }
       this.is_drawing = false;
     }
@@ -659,6 +714,15 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
         this.set_undo_btn_state(false);
       }
       this.render_drawing();
+      // A.H. added. Treat this as a stroke with a state of 'Undo':
+      // generate a new stroke and push to this.strokes_with_all_history.
+      this.stroke = [];
+      this.stroke.push({
+        state: "Undo",
+        t: Math.round(performance.now() - this.start_time),
+      });
+      this.strokes_with_all_history.push(this.stroke);
+      // A.H.
     }
     redo() {
       this.strokes.push(this.undo_history.pop());
@@ -667,6 +731,15 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
         this.set_redo_btn_state(false);
       }
       this.render_drawing();
+      // A.H. added. Treat this as a stroke with a state of 'Redo':
+      // generate a new stroke and push to this.strokes_with_all_history.
+      this.stroke = [];
+      this.stroke.push({
+        state: "Redo",
+        t: Math.round(performance.now() - this.start_time),
+      });
+      this.strokes_with_all_history.push(this.stroke);
+      // A.H.
     }
     clear() {
       this.strokes = [];
@@ -675,6 +748,10 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
       this.set_redo_btn_state(false);
       this.set_undo_btn_state(false);
       this.set_clear_btn_state(false);
+      // A.H. added. Clear this.strokes_with_all_history, 
+      // to make it consistent with this.strokes
+      this.strokes_with_all_history = [];
+      // A.H.
     }
     set_undo_btn_state(enabled) {
       if (this.params.show_undo_button) {
@@ -730,59 +807,170 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
     /** A.H.
      * 
      * */
-    // for the stroke at this.strokes[stroke_index], 
+    // For each stroke at this.strokes[stroke_index], 
     // draw the point in this stroke at pointIndex 
     drawStroke(strokeIndex, pointIndex) {
-      const currentStroke = this.strokes[strokeIndex];
+      if (strokeIndex >= this.strokes_with_all_history.length) {
+        // reached to the end of the last stroke, stop drawing the sketch
+        return;
+      }
+      const currentStroke = this.strokes_with_all_history[strokeIndex];
       const currentPoint = currentStroke[pointIndex];
       let timerDuration; 
+      // Define what to do, a value of 0 indicates 'do as usual', 
+      // a value of 1 indicates 'do a redraw' since 'Redo' or 'Undo' 
+      // stroke is encountered
+      let doWhat = 0; 
 
-      if (currentPoint.action === "start") {
-        // the point is at the start of the stroke
-        this.ctx_redraw.beginPath();
-        this.ctx_redraw.moveTo(currentPoint.x, currentPoint.y);
-        this.ctx_redraw.strokeStyle = currentPoint.color;
-        this.ctx_redraw.lineJoin = "round";
-        this.ctx_redraw.lineWidth = this.params.stroke_width;
-        pointIndex += 1; 
-        timerDuration = currentStroke[pointIndex].t - this.lastTimeTimerFired;
-
-      } else if (currentPoint.action === "move") {
-        // the point is in the middle of the stroke
-        this.ctx_redraw.lineTo(currentPoint.x, currentPoint.y);
-        this.ctx_redraw.stroke();
-        pointIndex += 1; 
-        timerDuration = currentStroke[pointIndex].t - this.lastTimeTimerFired;
-
-      } else if (currentPoint.action === "end") {
-        // the point is at the end of the stroke
-        // advance to the next stroke, reset the point index
-        strokeIndex += 1;
-        if (strokeIndex >= this.strokes.length) {
-          // reached to the end of the last stroke, stop drawing the sketch
-          return;
+      // If pointIndex equals 0, this is the first time to draw this stroke,
+      // and we must check the state of this stroke: Normal, Redo, or Undo?
+      // If pointIndex does NOT equal 0, this current stroke cannot have 
+      // "Undo" or "Redo" states, 
+      if (pointIndex == 0) {
+        // console.log("Stroke index and state are:", strokeIndex, currentPoint.state);
+        if (currentPoint.state === "Normal") {
+          this.last_normal_stroke_index = strokeIndex;   
+          // console.log("last_normal_stroke_index: ", this.last_normal_stroke_index);        
+        } else if (currentPoint.state === "Undo") {
+          // Change the state of the stroke with last_normal_stroke_index 
+          // to "Undo", then reduce last_normal_stroke_index by 1
+          this.strokes_with_all_history[this.last_normal_stroke_index][0].state = "Undo";
+          this.last_normal_stroke_index -= 1; 
+          doWhat = 1; 
+          // console.log("last_normal_stroke_index: ", this.last_normal_stroke_index);
+        } else if (currentPoint.state === "Redo") {
+          // Increase last_normal_stroke_index by 1, then change the state of the stroke
+          // with last_normal_stroke_index to "Normal"
+          this.last_normal_stroke_index += 1; 
+          this.strokes_with_all_history[this.last_normal_stroke_index][0].state = "Normal";
+          doWhat = 1; 
+          // console.log("last_normal_stroke_index: ", this.last_normal_stroke_index);
         }
-        pointIndex = 0; 
-        const nextStroke = this.strokes[strokeIndex];
-        timerDuration = nextStroke[0].t - this.lastTimeTimerFired; 
-              
       }
 
-      if (timerDuration >= this.minDuration) {
-        // if more than minDuration ms has passed, fire a timer, 
-        // and update lastTimeTimerFired 
-        this.lastTimeTimerFired += timerDuration; 
-        // console.log("fired timer duration: ", timerDuration); 
-        setTimeout(() => {
+      if (doWhat == 1) { // A 'Redo' or 'Undo' stroke is encountered
+        // Check how long has passed since the last time the timer was fired
+        timerDuration = currentStroke[0].t - this.lastTimeTimerFired;
+        if (timerDuration >= this.minDuration) {
+          // if more than minDuration ms has passed, update lastTimeTimerFired  
+          // and fire a timer to schedule the task to redraw all strokes
+          // up to the last normal stroke
+          this.lastTimeTimerFired += timerDuration; 
+          // console.log("fired timer duration: ", timerDuration); 
+          setTimeout(() => {
+            this.redrawUpToLastNormalStroke(strokeIndex, this.last_normal_stroke_index);
+          }, timerDuration);  
+        } else {
+          // if not, immediately redraw all strokes up to the last normal stroke
+          this.redrawUpToLastNormalStroke(strokeIndex, this.last_normal_stroke_index);
+        }      
+      } else { // This is a 'Normal' stroke
+        if (currentPoint.action === "start") {
+          // the point is at the start of the stroke
+          this.ctx_redraw.beginPath();
+          this.ctx_redraw.moveTo(currentPoint.x, currentPoint.y);
+          this.ctx_redraw.strokeStyle = currentPoint.color;
+          this.ctx_redraw.lineJoin = "round";
+          this.ctx_redraw.lineWidth = this.params.stroke_width;
+          pointIndex += 1; 
+          timerDuration = currentStroke[pointIndex].t - this.lastTimeTimerFired;
+  
+        } else if (currentPoint.action === "move") {
+          // the point is in the middle of the stroke
+          this.ctx_redraw.lineTo(currentPoint.x, currentPoint.y);
+          this.ctx_redraw.stroke();
+          pointIndex += 1; 
+          timerDuration = currentStroke[pointIndex].t - this.lastTimeTimerFired;
+  
+        } else if (currentPoint.action === "end") {
+          // the point is at the end of the stroke, 
+          // advance to the next stroke, reset the point index
+          strokeIndex += 1;
+          if (strokeIndex >= this.strokes_with_all_history.length) {
+            // reached to the end of the last stroke, stop drawing the sketch
+            return;
+          }
+          pointIndex = 0; 
+          const nextStroke = this.strokes_with_all_history[strokeIndex];
+          timerDuration = nextStroke[0].t - this.lastTimeTimerFired; 
+                
+        }
+  
+        if (timerDuration >= this.minDuration) {
+          // if more than minDuration ms has passed, fire a timer, 
+          // and update lastTimeTimerFired 
+          this.lastTimeTimerFired += timerDuration; 
+          // console.log("fired timer duration: ", timerDuration); 
+          setTimeout(() => {
+            this.drawStroke(strokeIndex, pointIndex);
+          }, timerDuration);  
+        } else {
+          // if not, move to the next stroke/point
           this.drawStroke(strokeIndex, pointIndex);
-        }, timerDuration);  
-      } else {
-        // if not, move to the next stroke/point
-        this.drawStroke(strokeIndex, pointIndex);
-      }            
+        }            
+      }
+      
     }
 
-    // show the audio/sketch playback control
+    redrawUpToLastNormalStroke(strokeIndex, last_normal_stroke_index) {
+      // console.log("redrawUpToLastNormalStroke is called with strokeIndex/last_normal_stroke_index:", strokeIndex, last_normal_stroke_index);      
+      this.ctx_redraw.clearRect(0, 0, this.sketchpad.width, this.sketchpad.height);
+      this.add_background_color();
+      if (this.background_image) {
+        this.ctx_redraw.drawImage(this.background_image, 0, 0);
+      }
+      let i = 0;
+      while (i <= last_normal_stroke_index) {
+        const stroke = this.strokes_with_all_history[i];
+        // console.log("stroke drawn:", i);
+        if (stroke[0].state === "Normal") {
+          for (const m of stroke) {
+            if (m.action == "start") {
+              this.ctx_redraw.beginPath();
+              this.ctx_redraw.moveTo(m.x, m.y);
+              this.ctx_redraw.strokeStyle = m.color;
+              this.ctx_redraw.lineJoin = "round";
+              this.ctx_redraw.lineWidth = this.params.stroke_width;
+            }
+            if (m.action == "move") {
+              this.ctx_redraw.lineTo(m.x, m.y);
+              this.ctx_redraw.stroke();
+            }
+          }
+        }
+        i += 1;
+      }
+      
+      // After redrawing all strokes up to the last normal stroke, 
+      // move to the next stroke
+      strokeIndex += 1;
+      // Now strokeIndex is the index of the next stroke
+      if (strokeIndex >= this.strokes_with_all_history.length) {
+        // Reached to the end of the last stroke, return
+        return;
+      }
+      const nextStroke = this.strokes_with_all_history[strokeIndex];
+      let pointIndex = 0;
+      if (nextStroke[0].state === "Normal") { // This is a 'Normal' stroke
+        let timerDuration = nextStroke[0].t - this.lastTimeTimerFired;
+        if (timerDuration >= this.minDuration) {
+          // if more than minDuration ms has passed, fire a timer, 
+          // and update lastTimeTimerFired 
+          this.lastTimeTimerFired += timerDuration; 
+          // console.log("fired timer duration: ", timerDuration); 
+          setTimeout(() => {
+            this.drawStroke(strokeIndex, pointIndex);
+          }, timerDuration);  
+        } else {
+          // if not, move to the next stroke/point
+          this.drawStroke(strokeIndex, pointIndex);
+        }
+      } else { // This is a 'Undo' or 'Redo' stroke
+        this.drawStroke(strokeIndex, pointIndex);
+      }      
+    }
+
+    // Show the "audio/sketch playback" controls
     showPlaybackControls() {
       // Add Canvas control
       const canvas_html = `<div>
@@ -801,23 +989,52 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
   ` + canvas_html;
 
       this.display.querySelector("#continue").addEventListener("click", () => {
-        this.end_trial();
+        // this.end_trial();
+        this.showRateConfidenceControls();
       });
 
       this.ctx_redraw = this.display.querySelector("#redraw-canvas").getContext("2d");        
 
       // Handler for the 'play' event of the audio playback element, 
       // when 'play' event is triggered, start animating sketchpad drawings 
-      // by connecting strokes 
+      // by using strokes stored this.strokes_with_all_history
       this.display.querySelector("#playback").addEventListener("play", () => {
+        this.ctx_redraw.clearRect(0, 0, this.sketchpad.width, this.sketchpad.height);
+        this.add_background_color();
+        if (this.background_image) {
+          this.ctx_redraw.drawImage(this.background_image, 0, 0);
+        }
         // draw the first stroke
-        this.lastTimeTimerFired = this.strokes[0][0].t;
+        this.lastTimeTimerFired = this.strokes_with_all_history[0][0].t;
         setTimeout(() => {
           this.drawStroke(0, 0);          
-        }, this.strokes[0][0].t);        
+        }, this.strokes_with_all_history[0][0].t);        
+      });
+    }
+
+    // Show the 'rate confidence' controls
+    showRateConfidenceControls() {      
+      this.display.innerHTML = `
+      <label for="confidenceLevel">Rate Your Confidence Level:</label>
+      <select name="confidenceOptions" id="confidenceLevel">
+          <option value="Very Confident" selected>Very Confident</option>
+          <option value="Confident">Confident</option>
+          <option value="Less Confident">Less Confident</option>
+          <option value="Least Confident">Least Confident</option>
+      </select>
+      <button id="continue2" class="jspsych-btn">Continue</button> `;
+
+      // Handler for the 'click' event of the 'Continue' button
+      this.display.querySelector("#continue2").addEventListener("click", () => {
+        this.end_trial();
       });
 
-    }
+      // Handler for the 'value change' event of the 'drop down' menu
+      this.display.querySelector("#confidenceLevel").addEventListener("change", (event) => {
+        this.confidence_level = event.target.value; 
+      });
+
+    }    
     // A. H.
 
     end_trial(response = null) {
@@ -844,7 +1061,9 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
         trial_data.png = this.sketchpad.toDataURL();
       }
       if (this.params.save_strokes) {
-        trial_data.strokes = this.strokes;
+        // A.H. changed. Change saved strokes from this.strokes to 
+        // this.strokes_with_all_history
+        trial_data.strokes = this.strokes_with_all_history;
       }
 
       /** A.H.
@@ -853,6 +1072,8 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
       // Save audio recordings
       trial_data.audio_url = this.audio_url;
       trial_data.audio_response = this.audio_response;
+      // Save the 'Confidence Level' of problem solving
+      trial_data.confidence_level = this.confidence_level
       // A.H.
 
       // Empty the HTML and remove the CSS
