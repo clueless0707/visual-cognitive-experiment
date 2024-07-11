@@ -250,6 +250,9 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
       this.balloon_timer_duration = 10000; 
       // balloon notification timer handle
       this.balloon_interval_handle = null; 
+      // To download the recorded audio to a local file
+      this.audio_file_webm_name = "recorded_audio.webm";
+      this.audio_file_wav_name = "recorded_audio.wav";
       // A.H. 
     }
     trial(display_element, trial, on_load) {
@@ -490,12 +493,31 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
       };
       this.stop_event_handler = () => {
         // Constructs a Blob (binary large object) containing the recorded audio data
+        // const data = new Blob(this.recorded_data_chunks, {
+        //   type: "audio/webm",
+        // });
         const data = new Blob(this.recorded_data_chunks, {
-          type: "audio/webm",
+          type: "audio/wav",
         });
         // Create a temporary URL that references the audio data
         // This URL can be used for playback or further processing
         this.audio_url = URL.createObjectURL(data);
+
+        // Create an file (with audio_file_name) from the blob data
+        // this.audio_file = new File([data], this.audio_file_webm_name, 
+        //   { type: "audio/webm" });
+        this.audio_file = new File([data], this.audio_file_wav_name, 
+          { type: "audio/wav" });
+          
+        // // Download the recorded audio data to a local file named this.audio_file
+        // const downloadLink = document.createElement("a");
+        // downloadLink.href = this.audio_url;
+        // // downloadLink.download = this.audio_file_webm_name;
+        // downloadLink.download = this.audio_file_wav_name;
+        // document.body.appendChild(downloadLink);
+        // downloadLink.click();
+        // document.body.removeChild(downloadLink);
+
         // Create a FileReader object to read the Blob as a data URL
         const reader = new FileReader();
         // Read Data Asynchronously
@@ -1022,7 +1044,11 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
           <option value="Less Confident">Less Confident</option>
           <option value="Least Confident">Least Confident</option>
       </select>
-      <button id="continue2" class="jspsych-btn">Continue</button> `;
+      <button id="continue2" class="jspsych-btn">Continue</button> 
+      <br> 
+      <br> 
+      <br> 
+      <label id="captionLabel">Waiting for the caption...</label> `;
 
       // Handler for the 'click' event of the 'Continue' button
       this.display.querySelector("#continue2").addEventListener("click", () => {
@@ -1032,9 +1058,46 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
       // Handler for the 'value change' event of the 'drop down' menu
       this.display.querySelector("#confidenceLevel").addEventListener("change", (event) => {
         this.confidence_level = event.target.value; 
-      });
+      });      
 
+      // this.transcribeAudio(this.audio_file_webm_name);
+      this.transcribeAudio(this.audio_file)
+        .then((caption) => {
+          document.getElementById("captionLabel").innerText = caption;
+        })
+        .catch((error) => {
+          console.error("Transcription failed", error);
+          document.getElementById("captionLabel").innerText =
+            "Transcription failed";
+        });
+    
     }    
+
+    // Call the Endpoint API to transcribe the audio file
+    transcribeAudio(file) {
+      const formData = new FormData();
+      formData.append('file', file);
+      // formData.append('uniqueId', 'user-transcriber-001');
+  
+      return fetch('/transcribe', {
+        method: 'POST',
+        body: formData
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        return response.json();
+      })
+      .then(transcriber_data => {
+        console.log('Transcription:', transcriber_data.transcription);
+        return transcriber_data.transcription;
+      })
+      .catch(error => {
+        console.error('Error:', error);
+      });
+    }
+    
     // A. H.
 
     end_trial(response = null) {

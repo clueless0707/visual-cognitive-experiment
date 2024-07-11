@@ -3,3 +3,8 @@ psycopg2==2.9.5
 # Need to specify this until PsiTurk upgrades to pyOpenSSL>=22.1.x
 # See this SO post for more details: https://stackoverflow.com/a/75053968
 cryptography==38.0.4
+transformers
+torch
+soundfile
+ffmpeg-python
+pydub

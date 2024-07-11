@@ -17,6 +17,24 @@ from json import dumps, loads
 from sqlalchemy import exc
 import datetime
 
+import os
+from werkzeug.utils import secure_filename
+from transformers import pipeline
+import ffmpeg
+import numpy as np
+import soundfile as sf
+from io import BytesIO
+from pydub import AudioSegment
+
+from scipy.io import wavfile
+
+# Define the path for saving uploaded files
+UPLOAD_FOLDER = 'uploads'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# Load the Whisper model and tokenizer
+whisper_transcriber = pipeline("automatic-speech-recognition", model="openai/whisper-large-v3")
+
 # load the configuration options
 config = PsiturkConfig()
 config.load_config()
@@ -54,6 +72,42 @@ def get_participants(codeversion):
         # .filter(Participant.status >= 3)  # only take completed
         .all()
     )
+
+
+# Endpoint API to transcribe the audio file
+@custom_code.route('/transcribe', methods=['POST'])
+def transcribe():
+    current_app.logger.info("Transcribe endpoint called")
+
+    if 'file' not in request.files:
+        abort(400, description="No file part")
+    
+    file = request.files['file']
+    if file.filename == '':
+        abort(400, description="No selected file")
+
+    filename = secure_filename(file.filename)
+    filepath = os.path.join(UPLOAD_FOLDER, filename)
+    file.save(filepath)
+
+    try:
+        # Call your transcription logic here
+        transcription_result = transcribe_audio(filepath)
+        return jsonify(transcription=transcription_result)
+    except Exception as e:
+        current_app.logger.error(f"Error during transcription: {e}")
+        abort(500, description="Error during transcription")
+    finally:
+        # Clean up: remove the file after processing
+        os.remove(filepath)
+
+def transcribe_audio(filepath):
+    with open(filepath, 'rb') as audio_file:
+            audio_data = audio_file.read()
+
+    transcription_result = whisper_transcriber(audio_data)["text"]
+
+    return transcription_result
 
 
 @custom_code.route('/data/<codeversion>/<name>', methods=['GET'])
