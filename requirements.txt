@@ -5,6 +5,4 @@ psycopg2==2.9.5
 cryptography==38.0.4
 transformers
 torch
-soundfile
-ffmpeg-python
-pydub
+

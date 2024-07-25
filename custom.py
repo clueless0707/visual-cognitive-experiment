@@ -19,21 +19,29 @@ import datetime
 
 import os
 from werkzeug.utils import secure_filename
-from transformers import pipeline
-import ffmpeg
-import numpy as np
-import soundfile as sf
-from io import BytesIO
-from pydub import AudioSegment
+from transformers import pipeline, WhisperForConditionalGeneration, WhisperProcessor
 
-from scipy.io import wavfile
 
 # Define the path for saving uploaded files
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # Load the Whisper model and tokenizer
-whisper_transcriber = pipeline("automatic-speech-recognition", model="openai/whisper-large-v3")
+model_name = "openai/whisper-large-v3"
+whisper_processor = WhisperProcessor.from_pretrained(model_name)
+whisper_model = WhisperForConditionalGeneration.from_pretrained(model_name)
+# Configure the model for word-level timestamps
+whisper_model.config.forced_decoder_ids = whisper_processor.get_decoder_prompt_ids(
+    language="en", task="transcribe")
+whisper_model.config.return_timestamps = "word"  # Enable word-level timestamps
+# Set up the feature extractor explicitly
+feature_extractor = whisper_processor.feature_extractor
+tokenizer = whisper_processor.tokenizer
+
+whisper_transcriber = pipeline(
+    "automatic-speech-recognition", model=whisper_model, 
+    tokenizer=tokenizer, feature_extractor=feature_extractor,
+    return_timestamps="word")
 
 # load the configuration options
 config = PsiturkConfig()
@@ -105,7 +113,9 @@ def transcribe_audio(filepath):
     with open(filepath, 'rb') as audio_file:
             audio_data = audio_file.read()
 
-    transcription_result = whisper_transcriber(audio_data)["text"]
+    # transcription_result = whisper_transcriber(audio_data)["text"]
+    transcription_result = whisper_transcriber(
+        audio_data, return_timestamps="word")["chunks"]
 
     return transcription_result
 

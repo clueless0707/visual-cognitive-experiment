@@ -253,6 +253,8 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
       // To download the recorded audio to a local file
       this.audio_file_webm_name = "recorded_audio.webm";
       this.audio_file_wav_name = "recorded_audio.wav";
+      // To store the transcribed caption
+      this.transcribed_caption = "";
       // A.H. 
     }
     trial(display_element, trial, on_load) {
@@ -1006,12 +1008,13 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
 
       this.display.innerHTML =
         `
-    <p><audio id="playback" src="${this.audio_url}" controls></audio></p>
-    <button id="continue" class="jspsych-btn">Continue</button>
-  ` + canvas_html;
+    <p><audio id="playback" src="${this.audio_url}" ></audio></p>
+    <button id="continue" class="jspsych-btn" disabled>Continue</button>
+  ` + canvas_html + `<br> 
+      <br> 
+      <label id="captionLabel">Waiting for the transcribed caption...</label> `;
 
       this.display.querySelector("#continue").addEventListener("click", () => {
-        // this.end_trial();
         this.showRateConfidenceControls();
       });
 
@@ -1031,7 +1034,61 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
         setTimeout(() => {
           this.drawStroke(0, 0);          
         }, this.strokes_with_all_history[0][0].t);        
+
+        // start captioning of the transcribed audio
+        let index = 0;
+        if (index < this.transcribed_caption.length) {
+          const word = this.transcribed_caption[index];
+          document.getElementById("captionLabel").innerText = word.text;
+          const start = word.timestamp[0];
+          const end = word.timestamp[1];
+          setTimeout(() => {
+            this.drawCaption(index + 1);
+          }, (end - start) * 1000);
+        }
+
       });
+
+      // call the transcribe endpoint api
+      this.transcribeAudio(this.audio_file)
+        .then((transcription_data) => {
+          // enable audio control and 'continue' button after transcription is done
+          document.getElementById('playback').controls = true;
+          document.getElementById('continue').removeAttribute('disabled');
+          document.getElementById("captionLabel").innerText = "Caption Ready";
+
+          // Save the transcribed caption
+          this.transcribed_caption = transcription_data;
+          
+          // // Iterate over each word object in the transcription data
+          // transcription_data.forEach((wordObject) => {
+          //   const { text, timestamp } = wordObject;
+          //   console.log(
+          //     `Word: "${text}", Start: ${timestamp[0]}, End: ${timestamp[1]}`
+          //   );
+          //   caption += text;
+          // });          
+          
+        })
+        .catch((error) => {
+          console.error("Transcription failed", error);
+          document.getElementById("captionLabel").innerText =
+            "Transcription failed";
+        });
+    
+    }
+
+    drawCaption(nextIndex) {
+      if (nextIndex < this.transcribed_caption.length) {
+        const word = this.transcribed_caption[nextIndex];
+        const caption = document.getElementById("captionLabel").innerText;
+        document.getElementById("captionLabel").innerText = caption + word.text;
+        const start = word.timestamp[0];
+        const end = word.timestamp[1];
+        setTimeout(() => {
+          this.drawCaption(nextIndex + 1);          
+        }, (end - start) * 1000);  
+      }
     }
 
     // Show the 'rate confidence' controls
@@ -1045,10 +1102,7 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
           <option value="Least Confident">Least Confident</option>
       </select>
       <button id="continue2" class="jspsych-btn">Continue</button> 
-      <br> 
-      <br> 
-      <br> 
-      <label id="captionLabel">Waiting for the caption...</label> `;
+      `;
 
       // Handler for the 'click' event of the 'Continue' button
       this.display.querySelector("#continue2").addEventListener("click", () => {
@@ -1059,18 +1113,7 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
       this.display.querySelector("#confidenceLevel").addEventListener("change", (event) => {
         this.confidence_level = event.target.value; 
       });      
-
-      // this.transcribeAudio(this.audio_file_webm_name);
-      this.transcribeAudio(this.audio_file)
-        .then((caption) => {
-          document.getElementById("captionLabel").innerText = caption;
-        })
-        .catch((error) => {
-          console.error("Transcription failed", error);
-          document.getElementById("captionLabel").innerText =
-            "Transcription failed";
-        });
-    
+      
     }    
 
     // Call the Endpoint API to transcribe the audio file
@@ -1090,7 +1133,7 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
         return response.json();
       })
       .then(transcriber_data => {
-        console.log('Transcription:', transcriber_data.transcription);
+        // console.log('Transcription:', transcriber_data.transcription);
         return transcriber_data.transcription;
       })
       .catch(error => {
