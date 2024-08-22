@@ -1055,7 +1055,7 @@ var jsPsychSketchpadWithAudioRecording = (function (jspsych) {
           // enable audio control and 'continue' button after transcription is done
           document.getElementById('playback').controls = true;
           document.getElementById('continue').removeAttribute('disabled');
-          document.getElementById("captionLabel").innerText = "Caption Ready";
+          document.getElementById("captionLabel").innerText = "Caption Ready. Press the playback button (Right Triangle).";
 
           // Save the transcribed caption
           this.transcribed_caption = transcription_data;
